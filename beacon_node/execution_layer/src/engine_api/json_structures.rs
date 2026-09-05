@@ -1208,11 +1208,19 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(transparent)]
+pub struct JsonBlockAccessList(
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")] pub BlockAccessList,
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_access_list: Option<JsonBlockAccessList>,
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1222,6 +1230,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBody
         Ok(Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(withdrawals_from_json).transpose()?,
+            block_access_list: value.block_access_list.map(|list| list.0),
         })
     }
 }
@@ -1233,6 +1242,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBody
         Ok(Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(withdrawals_to_json).transpose()?,
+            block_access_list: value.block_access_list.map(JsonBlockAccessList),
         })
     }
 }
@@ -1650,5 +1660,45 @@ mod tests {
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));
+    }
+
+    #[test]
+    fn payload_body_block_access_list_round_trip() {
+        use serde_json::json;
+
+        // Present `blockAccessList` -> `Some`.
+        let with_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": "0x010203",
+        });
+        let body: JsonExecutionPayloadBodyV1<MainnetEthSpec> =
+            serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV1<MainnetEthSpec> = body.clone().try_into().unwrap();
+        assert_eq!(
+            internal.block_access_list,
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
+
+        // Explicit `null` -> `None`, omitted on re-serialize.
+        let null_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": null,
+        });
+        let body: JsonExecutionPayloadBodyV1<MainnetEthSpec> =
+            serde_json::from_value(null_bal).unwrap();
+        let internal: ExecutionPayloadBodyV1<MainnetEthSpec> = body.clone().try_into().unwrap();
+        assert_eq!(internal.block_access_list, None);
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({ "transactions": [], "withdrawals": null })
+        );
+
+        // Omitted -> `None`.
+        let body: JsonExecutionPayloadBodyV1<MainnetEthSpec> =
+            serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
+        assert!(body.block_access_list.is_none());
     }
 }

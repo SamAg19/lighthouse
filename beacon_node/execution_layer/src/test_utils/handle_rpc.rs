@@ -724,7 +724,7 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_GET_CLIENT_VERSION_V1 => {
             Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
         }
-        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1 => {
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1 | ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2 => {
             let block_hashes = get_param::<Vec<ExecutionBlockHash>>(params, 0)
                 .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
 
@@ -757,6 +757,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                 })
                                 .transpose()
                                 .unwrap(),
+                            block_access_list: payload.block_access_list().ok().cloned(),
                         };
                         let json_payload_body: JsonExecutionPayloadBodyV1<E> =
                             payload_body.try_into().unwrap();
@@ -809,6 +810,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                 })
                                 .transpose()
                                 .unwrap(),
+                            block_access_list: None,
                         };
                         let json_payload_body: JsonExecutionPayloadBodyV1<E> =
                             payload_body.try_into().unwrap();

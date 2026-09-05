@@ -1665,9 +1665,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
         self.engine()
-            .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+            .request(|engine| async move {
+                if capabilities.get_payload_bodies_by_hash_v2 {
+                    engine.api.get_payload_bodies_by_hash_v2(hashes).await
+                } else {
+                    engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                }
             })
             .await
             .map_err(Box::new)
