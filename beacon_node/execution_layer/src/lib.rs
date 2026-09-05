@@ -14,7 +14,14 @@ use builder_client::PreGloasBuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
+pub use engine_api::{
+    http,
+    http::deposit_methods,
+    http::{
+        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, HttpJsonRpc,
+    },
+};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -1669,9 +1676,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
         self.engine()
             .request(|engine| async move {
                 if capabilities.get_payload_bodies_by_hash_v2 {
-                    engine.api.get_payload_bodies_by_hash_v2(hashes).await
+                    engine
+                        .api
+                        .get_payload_bodies_by_hash(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, hashes)
+                        .await
                 } else {
-                    engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                    engine
+                        .api
+                        .get_payload_bodies_by_hash(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, hashes)
+                        .await
                 }
             })
             .await
@@ -1691,12 +1704,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 if capabilities.get_payload_bodies_by_range_v2 {
                     engine
                         .api
-                        .get_payload_bodies_by_range_v2(start, count)
+                        .get_payload_bodies_by_range(
+                            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
+                            start,
+                            count,
+                        )
                         .await
                 } else {
                     engine
                         .api
-                        .get_payload_bodies_by_range_v1(start, count)
+                        .get_payload_bodies_by_range(
+                            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+                            start,
+                            count,
+                        )
                         .await
                 }
             })
