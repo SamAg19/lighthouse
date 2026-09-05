@@ -769,7 +769,7 @@ pub async fn handle_rpc<E: EthSpec>(
 
             Ok(serde_json::to_value(response).unwrap())
         }
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
+        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 | ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2 => {
             #[derive(Deserialize)]
             #[serde(transparent)]
             struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
@@ -810,7 +810,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                 })
                                 .transpose()
                                 .unwrap(),
-                            block_access_list: None,
+                            block_access_list: payload.block_access_list().ok().cloned(),
                         };
                         let json_payload_body: JsonExecutionPayloadBodyV1<E> =
                             payload_body.try_into().unwrap();

@@ -57,6 +57,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2: &str = "engine_getPayloadBodiesByHashV2";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2: &str = "engine_getPayloadBodiesByRangeV2";
 pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
@@ -97,6 +98,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V2,
     ENGINE_GET_BLOBS_V3,
@@ -1258,6 +1260,34 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
+    pub async fn get_payload_bodies_by_range_v2<E: EthSpec>(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        #[derive(Serialize)]
+        #[serde(transparent)]
+        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
+
+        let params = json!([Quantity(start), Quantity(count)]);
+        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        response
+            .into_iter()
+            .map(|opt_json| {
+                opt_json
+                    .map(|json| json.try_into().map_err(Error::from))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
@@ -1285,6 +1315,8 @@ impl HttpJsonRpc {
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2),
             get_payload_bodies_by_range_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
+            get_payload_bodies_by_range_v2: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2),
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),

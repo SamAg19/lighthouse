@@ -4,9 +4,10 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
-    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -608,6 +609,7 @@ pub struct EngineCapabilities {
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_hash_v2: bool,
     pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_bodies_by_range_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
@@ -658,6 +660,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_bodies_by_range_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        }
+        if self.get_payload_bodies_by_range_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);

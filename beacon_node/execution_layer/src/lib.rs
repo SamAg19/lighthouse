@@ -1684,13 +1684,21 @@ impl<E: EthSpec> ExecutionLayer<E> {
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
-            .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
+            .request(|engine| async move {
+                if capabilities.get_payload_bodies_by_range_v2 {
+                    engine
+                        .api
+                        .get_payload_bodies_by_range_v2(start, count)
+                        .await
+                } else {
+                    engine
+                        .api
+                        .get_payload_bodies_by_range_v1(start, count)
+                        .await
+                }
             })
             .await
             .map_err(Box::new)
