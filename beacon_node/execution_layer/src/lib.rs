@@ -161,6 +161,7 @@ pub enum Error {
         transactions_root: Hash256,
     },
     ZeroLengthTransaction,
+    PayloadBodiesByHashNotSupported,
     PayloadBodiesByRangeNotSupported,
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
@@ -1673,20 +1674,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
+        let method = if capabilities.get_payload_bodies_by_hash_v2 {
+            ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2
+        } else if capabilities.get_payload_bodies_by_hash_v1 {
+            ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1
+        } else {
+            return Err(Error::PayloadBodiesByHashNotSupported);
+        };
+
         self.engine()
-            .request(|engine| async move {
-                if capabilities.get_payload_bodies_by_hash_v2 {
-                    engine
-                        .api
-                        .get_payload_bodies_by_hash(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, hashes)
-                        .await
-                } else {
-                    engine
-                        .api
-                        .get_payload_bodies_by_hash(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, hashes)
-                        .await
-                }
-            })
+            .request(
+                |engine| async move { engine.api.get_payload_bodies_by_hash(method, hashes).await },
+            )
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
@@ -1699,27 +1698,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
+        let method = if capabilities.get_payload_bodies_by_range_v2 {
+            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2
+        } else if capabilities.get_payload_bodies_by_range_v1 {
+            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1
+        } else {
+            return Err(Error::PayloadBodiesByRangeNotSupported);
+        };
+
         self.engine()
             .request(|engine| async move {
-                if capabilities.get_payload_bodies_by_range_v2 {
-                    engine
-                        .api
-                        .get_payload_bodies_by_range(
-                            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
-                            start,
-                            count,
-                        )
-                        .await
-                } else {
-                    engine
-                        .api
-                        .get_payload_bodies_by_range(
-                            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-                            start,
-                            count,
-                        )
-                        .await
-                }
+                engine
+                    .api
+                    .get_payload_bodies_by_range(method, start, count)
+                    .await
             })
             .await
             .map_err(Box::new)
@@ -1759,7 +1751,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
+        if capabilities.get_payload_bodies_by_range_v1 | capabilities.get_payload_bodies_by_range_v2
+        {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
