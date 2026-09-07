@@ -28,7 +28,7 @@ pub use types::{
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequests, KzgProofs,
+    ExecutionRequests, KzgProofs, ProgressiveTransactions, ProgressiveWithdrawals,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -448,6 +448,14 @@ impl<E: EthSpec> GetPayloadResponse<E> {
 pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+}
+
+/// The execution payload body returned by `engine_getPayloadBodiesByHashV2` and
+/// `engine_getPayloadBodiesByRangeV2`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExecutionPayloadBodyV2 {
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveWithdrawals>,
     pub block_access_list: Option<BlockAccessList>,
 }
 

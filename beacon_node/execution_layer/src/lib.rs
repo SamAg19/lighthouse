@@ -14,14 +14,7 @@ use builder_client::PreGloasBuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{
-    http,
-    http::deposit_methods,
-    http::{
-        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, HttpJsonRpc,
-    },
-};
+pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -161,8 +154,9 @@ pub enum Error {
         transactions_root: Hash256,
     },
     ZeroLengthTransaction,
-    PayloadBodiesByHashNotSupported,
+    PayloadBodiesByHashV2NotSupported,
     PayloadBodiesByRangeNotSupported,
+    PayloadBodiesByRangeV2NotSupported,
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),
@@ -1673,19 +1667,29 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        self.engine()
+            .request(|engine: &Engine| async move {
+                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
+    /// Fetch execution payload bodies using the Gloas V2 response format.
+    pub async fn get_payload_bodies_by_hash_v2(
+        &self,
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
-        let method = if capabilities.get_payload_bodies_by_hash_v2 {
-            ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2
-        } else if capabilities.get_payload_bodies_by_hash_v1 {
-            ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1
-        } else {
-            return Err(Error::PayloadBodiesByHashNotSupported);
-        };
+        if !capabilities.get_payload_bodies_by_hash_v2 {
+            return Err(Error::PayloadBodiesByHashV2NotSupported);
+        }
 
         self.engine()
-            .request(
-                |engine| async move { engine.api.get_payload_bodies_by_hash(method, hashes).await },
-            )
+            .request(|engine: &Engine| async move {
+                engine.api.get_payload_bodies_by_hash_v2(hashes).await
+            })
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
@@ -1696,21 +1700,36 @@ impl<E: EthSpec> ExecutionLayer<E> {
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
-        let method = if capabilities.get_payload_bodies_by_range_v2 {
-            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2
-        } else if capabilities.get_payload_bodies_by_range_v1 {
-            ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1
-        } else {
-            return Err(Error::PayloadBodiesByRangeNotSupported);
-        };
-
         self.engine()
-            .request(|engine| async move {
+            .request(|engine: &Engine| async move {
                 engine
                     .api
-                    .get_payload_bodies_by_range(method, start, count)
+                    .get_payload_bodies_by_range_v1(start, count)
+                    .await
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
+    /// Fetch execution payload bodies by range using the Gloas V2 response format.
+    pub async fn get_payload_bodies_by_range_v2(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_range_v2 {
+            return Err(Error::PayloadBodiesByRangeV2NotSupported);
+        }
+
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
+        self.engine()
+            .request(|engine: &Engine| async move {
+                engine
+                    .api
+                    .get_payload_bodies_by_range_v2(start, count)
                     .await
             })
             .await
@@ -1751,8 +1770,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 | capabilities.get_payload_bodies_by_range_v2
-        {
+        if capabilities.get_payload_bodies_by_range_v1 {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
@@ -2202,7 +2220,7 @@ fn noop<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
@@ -2218,6 +2236,51 @@ mod test {
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    async fn get_gloas_payload_bodies_v2() {
+        let runtime = TestRuntime::default();
+        let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
+        let block_hash = ExecutionBlockHash::repeat_byte(0x42);
+        let block_number = 42;
+        let payload = ExecutionPayloadGloas {
+            block_hash,
+            block_number,
+            ..Default::default()
+        };
+        let expected_body = ExecutionPayloadBodyV2 {
+            transactions: payload.transactions.clone(),
+            withdrawals: Some(payload.withdrawals.clone()),
+            block_access_list: Some(payload.block_access_list.clone()),
+        };
+        let mut block_generator = mock.server.execution_block_generator();
+        block_generator.insert_block_without_checks(Block::PoS(payload.into()));
+        block_generator
+            .forkchoice_updated(
+                ForkchoiceState {
+                    head_block_hash: block_hash,
+                    safe_block_hash: block_hash,
+                    finalized_block_hash: block_hash,
+                },
+                None,
+            )
+            .expect("block should become the mock execution head");
+        drop(block_generator);
+
+        let bodies_by_hash = mock
+            .el
+            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
+            .await
+            .expect("payload body request by hash should succeed");
+        assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
+
+        let bodies_by_range = mock
+            .el
+            .get_payload_bodies_by_range_v2(block_number, 2)
+            .await
+            .expect("payload body request by range should succeed");
+        assert_eq!(bodies_by_range, vec![Some(expected_body), None]);
     }
 
     #[tokio::test]

@@ -1184,16 +1184,15 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
-        method: &str,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let params = json!([block_hashes]);
 
         let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
             .rpc_request(
-                method,
+                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
                 params,
                 ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1209,9 +1208,28 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub async fn get_payload_bodies_by_range<E: EthSpec>(
+    pub async fn get_payload_bodies_by_hash_v2(
         &self,
-        method: &str,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let params = json!([block_hashes]);
+
+        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|body| body.map(Into::into))
+            .collect())
+    }
+
+    pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
+        &self,
         start: u64,
         count: u64,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
@@ -1222,7 +1240,7 @@ impl HttpJsonRpc {
         let params = json!([Quantity(start), Quantity(count)]);
         let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
             .rpc_request(
-                method,
+                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
                 params,
                 ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1236,6 +1254,30 @@ impl HttpJsonRpc {
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    pub async fn get_payload_bodies_by_range_v2(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        #[derive(Serialize)]
+        #[serde(transparent)]
+        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
+
+        let params = json!([Quantity(start), Quantity(count)]);
+        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|body| body.map(Into::into))
+            .collect())
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
