@@ -17,7 +17,7 @@ pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 use engine_api::transport::EngineApi;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
+pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -510,6 +510,8 @@ pub struct Config {
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
     pub execution_timeout_multiplier: Option<u32>,
+    /// Use the REST-SSZ Engine API transport instead of JSON-RPC (opt-in).
+    pub engine_api_rest_ssz: bool,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -534,6 +536,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
+            engine_api_rest_ssz,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -571,13 +574,25 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }?;
 
         let engine: Engine<E> = {
-            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
+            let rest_ssz = if engine_api_rest_ssz {
+                let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), None);
+                Some(
+                    HttpRestSsz::new_with_auth(
+                        execution_url.clone(),
+                        rest_auth,
+                        execution_timeout_multiplier,
+                    )
+                    .map_err(Error::ApiError)?,
+                )
+            } else {
+                None
+            };
+            let json_auth = Auth::new(jwt_key, jwt_id, jwt_version);
             let json_rpc =
-                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                HttpJsonRpc::new_with_auth(execution_url, json_auth, execution_timeout_multiplier)
                     .map_err(Error::ApiError)?;
-            // REST-SSZ is wired but never constructed until the flag lands.
-            let api = EngineApi::new(json_rpc, None);
+            let api = EngineApi::new(json_rpc, rest_ssz);
             Engine::new(api, executor.clone())
         };
 
