@@ -1683,7 +1683,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
-        if !capabilities.get_payload_bodies_by_hash_v2 {
+        if !capabilities.get_payload_bodies_by_hash_v2() {
             return Err(Error::PayloadBodiesByHashV2NotSupported);
         }
 
@@ -1713,7 +1713,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
 
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_hash_v1 {
+        if capabilities.get_payload_bodies_by_hash_v1() {
             let mut payload_bodies = self
                 .get_payload_bodies_by_hash(vec![header.block_hash()])
                 .await?;
@@ -1740,7 +1740,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v2 {
+        if capabilities.get_blobs_v2() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
@@ -1757,7 +1757,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v3 {
+        if capabilities.get_blobs_v3() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await
@@ -1775,7 +1775,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<GetBlobsV4List<E>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v4 {
+        if capabilities.get_blobs_v4() {
             self.engine()
                 .request(
                     |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
@@ -1791,7 +1791,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_inclusion_list_v1 {
+        if capabilities.get_inclusion_list_v1() {
             self.engine()
                 .request(|engine| async move { engine.api.get_inclusion_list_v1().await })
                 .await
