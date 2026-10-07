@@ -34,6 +34,7 @@ pub use execution_block_generator::{
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
+pub use mock_execution_layer::mock_rest_ssz_enabled;
 
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
@@ -79,6 +80,7 @@ pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     });
 
 mod execution_block_generator;
+mod handle_rest;
 mod handle_rpc;
 mod hook;
 mod mock_builder;
@@ -261,6 +263,13 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
         self.ctx.execution_block_generator.write()
+    }
+
+    pub fn expire_all_payload_ids(&self) {
+        self.ctx
+            .execution_block_generator
+            .write()
+            .expire_all_payload_ids();
     }
 
     pub fn url(&self) -> String {
@@ -699,7 +708,9 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     Ok(warp::reply::with_status(json, code))
 }
 
-/// Records the REST request into `last_rest_request` and answers `204`.
+const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam"],"fork_scoped_endpoints":["payloads","forkchoice","bodies"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
+
+/// Records the REST request into `last_rest_request`, then dispatches to `handle_rest`.
 #[allow(clippy::too_many_arguments)]
 async fn handle_rest_capture<E: EthSpec>(
     method: &'static str,
@@ -727,16 +738,20 @@ async fn handle_rest_capture<E: EthSpec>(
     *ctx.last_rest_request.write() = Some(RestCapture {
         method: method.to_string(),
         path,
-        eth_execution_version,
+        eth_execution_version: eth_execution_version.clone(),
         client_version,
         content_type,
-        body,
+        body: body.clone(),
     });
 
-    Ok(warp::http::Response::builder()
-        .status(204)
-        .body(Bytes::new())
-        .unwrap())
+    Ok(handle_rest::handle_rest(
+        method,
+        full_path,
+        query.as_deref(),
+        eth_execution_version.as_deref(),
+        &body,
+        &ctx,
+    ))
 }
 
 /// Creates a server that will serve requests using information from `ctx`.

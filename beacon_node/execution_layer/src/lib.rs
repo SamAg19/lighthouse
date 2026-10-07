@@ -17,7 +17,9 @@ pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 use engine_api::transport::EngineApi;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz};
+pub use engine_api::{
+    http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz, transport::Transport,
+};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -1984,6 +1986,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
             Err(Error::NoPayloadBuilder)
         }
     }
+
+    pub(crate) fn resolved_transport(&self) -> Option<Transport> {
+        self.engine().api.get_decision().copied()
+    }
 }
 
 #[derive(AsRefStr)]
@@ -2207,6 +2213,8 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .resolve_and_assert_transport()
+            .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
