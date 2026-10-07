@@ -25,7 +25,7 @@ use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
-use crate::{EngineCapabilities, JsonRpcCapabilities};
+use crate::{EngineCapabilities, ForkchoiceState, JsonRpcCapabilities, PayloadAttributes};
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
@@ -82,6 +82,7 @@ mod execution_block_generator;
 mod handle_rpc;
 mod hook;
 mod mock_builder;
+mod mock_engine_core;
 mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
@@ -173,6 +174,7 @@ impl<E: EthSpec> MockServer<E> {
             serve_rest_ssz,
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
+            previous_forkchoice_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
@@ -290,6 +292,10 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn take_previous_request(&self) -> Option<serde_json::Value> {
         self.ctx.previous_request.lock().take()
+    }
+
+    pub fn take_previous_forkchoice_request(&self) -> Option<CapturedForkchoiceRequest> {
+        self.ctx.previous_forkchoice_request.lock().take()
     }
 
     pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
@@ -564,6 +570,9 @@ struct AuthError(String);
 
 impl warp::reject::Reject for AuthError {}
 
+/// A captured `forkchoice_updated` request: the state plus any payload attributes.
+pub type CapturedForkchoiceRequest = (ForkchoiceState, Option<PayloadAttributes>);
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -577,6 +586,7 @@ pub struct Context<E: EthSpec> {
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
+    pub previous_forkchoice_request: Arc<Mutex<Option<CapturedForkchoiceRequest>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub hook: Arc<Mutex<Hook>>,
