@@ -1,4 +1,14 @@
 use super::*;
+use crate::http::{
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5, ENGINE_GET_BLOBS_V2,
+    ENGINE_GET_BLOBS_V3, ENGINE_GET_BLOBS_V4, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
+};
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
@@ -2070,5 +2080,150 @@ mod payload_status_tests {
             PayloadStatusV1::from(status).inclusion_list_satisfied,
             Some(true)
         );
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct JsonRpcCapabilities {
+    pub new_payload_v1: bool,
+    pub new_payload_v2: bool,
+    pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
+    pub new_payload_v5: bool,
+    pub new_payload_v6: bool,
+    pub forkchoice_updated_v1: bool,
+    pub forkchoice_updated_v2: bool,
+    pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
+    pub forkchoice_updated_v5: bool,
+    pub get_payload_bodies_by_hash_v1: bool,
+    pub get_payload_bodies_by_hash_v2: bool,
+    pub get_payload_v1: bool,
+    pub get_payload_v2: bool,
+    pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
+    pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
+    pub get_client_version_v1: bool,
+    pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
+    pub get_blobs_v4: bool,
+    pub get_inclusion_list_v1: bool,
+}
+
+impl JsonRpcCapabilities {
+    pub fn new_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.new_payload_v1,
+            ForkName::Capella => self.new_payload_v2,
+            ForkName::Deneb => self.new_payload_v3,
+            ForkName::Electra | ForkName::Fulu => self.new_payload_v4,
+            ForkName::Gloas => self.new_payload_v5,
+            ForkName::Heze => self.new_payload_v6,
+            ForkName::Base | ForkName::Altair => false,
+        }
+    }
+
+    pub fn get_payload(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.get_payload_v1,
+            ForkName::Capella => self.get_payload_v2,
+            ForkName::Deneb => self.get_payload_v3,
+            ForkName::Electra => self.get_payload_v4,
+            ForkName::Fulu => self.get_payload_v5,
+            ForkName::Gloas => self.get_payload_v6,
+            // TODO(heze): add heze arm to appropriate get_payload version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair | ForkName::Heze => false,
+        }
+    }
+
+    pub fn forkchoice_updated(&self, fork: ForkName) -> bool {
+        match fork {
+            ForkName::Bellatrix => self.forkchoice_updated_v1,
+            ForkName::Capella => self.forkchoice_updated_v2,
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => self.forkchoice_updated_v3,
+            ForkName::Gloas => self.forkchoice_updated_v4,
+            ForkName::Heze => self.forkchoice_updated_v5,
+            // TODO(heze): add heze arm to appropriate forkchoice_updated version once JSON engine API spec is finalized
+            ForkName::Base | ForkName::Altair => false,
+        }
+    }
+
+    pub fn to_response(&self) -> Vec<&str> {
+        let mut response = Vec::new();
+        if self.new_payload_v1 {
+            response.push(ENGINE_NEW_PAYLOAD_V1);
+        }
+        if self.new_payload_v2 {
+            response.push(ENGINE_NEW_PAYLOAD_V2);
+        }
+        if self.new_payload_v3 {
+            response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
+        }
+        if self.new_payload_v5 {
+            response.push(ENGINE_NEW_PAYLOAD_V5);
+        }
+        if self.new_payload_v6 {
+            response.push(ENGINE_NEW_PAYLOAD_V6);
+        }
+        if self.forkchoice_updated_v1 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
+        }
+        if self.forkchoice_updated_v2 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
+        }
+        if self.forkchoice_updated_v3 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V3);
+        }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
+        }
+        if self.forkchoice_updated_v5 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V5);
+        }
+        if self.get_payload_bodies_by_hash_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
+        }
+        if self.get_payload_bodies_by_hash_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
+        }
+        if self.get_payload_v1 {
+            response.push(ENGINE_GET_PAYLOAD_V1);
+        }
+        if self.get_payload_v2 {
+            response.push(ENGINE_GET_PAYLOAD_V2);
+        }
+        if self.get_payload_v3 {
+            response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
+        }
+        if self.get_payload_v5 {
+            response.push(ENGINE_GET_PAYLOAD_V5);
+        }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
+        }
+        if self.get_client_version_v1 {
+            response.push(ENGINE_GET_CLIENT_VERSION_V1);
+        }
+        if self.get_blobs_v2 {
+            response.push(ENGINE_GET_BLOBS_V2);
+        }
+        if self.get_blobs_v3 {
+            response.push(ENGINE_GET_BLOBS_V3);
+        }
+        if self.get_blobs_v4 {
+            response.push(ENGINE_GET_BLOBS_V4);
+        }
+        if self.get_inclusion_list_v1 {
+            response.push(ENGINE_GET_INCLUSION_LIST_V1);
+        }
+
+        response
     }
 }
