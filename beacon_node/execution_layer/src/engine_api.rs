@@ -34,6 +34,7 @@ pub mod json_structures;
 mod new_payload_request;
 pub mod rest;
 pub mod ssz_structures;
+pub mod transport;
 
 // Per-method request timeouts, shared by the JSON-RPC and REST-SSZ transports.
 pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
@@ -92,6 +93,13 @@ pub enum Error {
         detail: Option<String>,
     },
     TransportUnreachable(String),
+    TransportAlreadyResolved(transport::Transport),
+}
+
+impl From<transport::Transport> for Error {
+    fn from(transport: transport::Transport) -> Self {
+        Error::TransportAlreadyResolved(transport)
+    }
 }
 
 impl From<reqwest::Error> for Error {
@@ -122,6 +130,17 @@ impl From<auth::Error> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
+    }
+}
+
+impl Error {
+    /// A REST `GET /payloads/{id}` 404 whose id the EL has expired (build-bound TTL)
+    pub fn is_unknown_payload(&self) -> bool {
+        matches!(self, Error::RestProblem { status: 404, problem, .. } if problem == "unknown-payload")
+    }
+
+    pub fn is_transport_unreachable(&self) -> bool {
+        matches!(self, Error::TransportUnreachable(_))
     }
 }
 
@@ -695,17 +714,21 @@ impl EngineCapabilities {
         }
     }
 
-    pub fn get_payload_bodies_by_hash_v1(&self) -> bool {
+    pub fn get_payload_bodies_by_hash_v1(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
-            Self::Ssz(capabilities) => capabilities.bodies && self.bodies_max_count() > 0,
+            Self::Ssz(capabilities) => {
+                capabilities.get_payload_bodies(fork) && self.bodies_max_count() > 0
+            }
         }
     }
 
-    pub fn get_payload_bodies_by_hash_v2(&self) -> bool {
+    pub fn get_payload_bodies_by_hash_v2(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v2,
-            Self::Ssz(capabilities) => capabilities.bodies && self.bodies_max_count() > 0,
+            Self::Ssz(capabilities) => {
+                capabilities.get_payload_bodies(fork) && self.bodies_max_count() > 0
+            }
         }
     }
 
@@ -748,6 +771,19 @@ impl EngineCapabilities {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_blobs_v4,
             Self::Ssz(capabilities) => capabilities.get_blobs_v4(),
+        }
+    }
+
+    pub fn blobs_max_versioned_hashes<E: EthSpec>(&self) -> usize {
+        let ceiling = E::MaxVersionedHashesPerRequest::to_usize();
+        match self {
+            Self::JsonRpc(_) => ceiling,
+            Self::Ssz(capabilities) => capabilities
+                .limits
+                .blobs_max_versioned_hashes
+                .map_or(ceiling, |advertised| {
+                    advertised.min(ceiling as u64) as usize
+                }),
         }
     }
 
@@ -949,5 +985,80 @@ impl ClientVersionV1 {
             .copy_from_slice(&graffiti_string.as_bytes()[..bytes_to_copy]);
 
         Graffiti::from(graffiti_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rest_problem(status: u16, problem: &str) -> Error {
+        Error::RestProblem {
+            status,
+            problem: problem.to_string(),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn is_unknown_payload_matches_404_unknown_payload() {
+        // The one case the reconcile path retries on: a REST 404 with the `unknown-payload` slug.
+        assert!(rest_problem(404, "unknown-payload").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_other_404_slugs() {
+        // A 404 with any other slug is a different failure a re-fcU can't fix.
+        assert!(!rest_problem(404, "invalid-request").is_unknown_payload());
+        assert!(!rest_problem(404, "").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_unknown_payload_with_other_status() {
+        // The slug alone is not enough; only a 404 counts.
+        assert!(!rest_problem(400, "unknown-payload").is_unknown_payload());
+        assert!(!rest_problem(500, "unknown-payload").is_unknown_payload());
+    }
+
+    #[test]
+    fn is_unknown_payload_rejects_non_rest_errors() {
+        // JSON-RPC / non-REST errors never match, so the JSON-RPC path never enters the retry arm.
+        // `ServerMessage` is a JSON-RPC error response from the EL — the closest JSON-RPC analogue.
+        assert!(
+            !Error::ServerMessage {
+                code: -38001,
+                message: "Unknown payload".to_string(),
+            }
+            .is_unknown_payload()
+        );
+        assert!(!Error::PayloadIdUnavailable.is_unknown_payload());
+        assert!(!Error::IsSyncing.is_unknown_payload());
+    }
+
+    #[test]
+    fn is_transport_unreachable_matches_transport_unreachable() {
+        // The h2c -> HTTP/1.1 fallback trigger: a statusless, non-timeout REST send failure.
+        assert!(
+            Error::TransportUnreachable("connection reset".to_string()).is_transport_unreachable()
+        );
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_status_bearing_errors() {
+        // Any error carrying an HTTP status means the peer responded over the attempted
+        // transport, so it must never trigger the HTTP/2 -> HTTP/1.1 fallback. A non-2xx status
+        // surfaces as `RestProblem`; a 401/403 surfaces as `Auth` (see `From<reqwest::Error>`).
+        assert!(!rest_problem(400, "unsupported-fork").is_transport_unreachable());
+        assert!(!rest_problem(415, "").is_transport_unreachable());
+        assert!(
+            !Error::Auth(crate::auth::Error::InvalidToken("401".to_string()))
+                .is_transport_unreachable()
+        );
+    }
+
+    #[test]
+    fn is_transport_unreachable_rejects_non_rest_errors() {
+        assert!(!Error::PayloadIdUnavailable.is_transport_unreachable());
+        assert!(!Error::IsSyncing.is_transport_unreachable());
     }
 }
