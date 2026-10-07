@@ -8,13 +8,14 @@ use crate::{ClientVersionV1, HttpJsonRpc};
 use hashlink::lru_cache::LruCache;
 use ssz_derive::{Decode, Encode};
 use std::future::Future;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::{ColumnIndex, ExecutionBlockHash};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -120,15 +121,16 @@ pub enum EngineError {
 }
 
 /// An execution engine.
-pub struct Engine {
+pub struct Engine<E: EthSpec> {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
     executor: TaskExecutor,
+    _phantom: PhantomData<E>,
 }
 
-impl Engine {
+impl<E: EthSpec> Engine<E> {
     /// Creates a new, offline engine.
     pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
         Self {
@@ -137,6 +139,7 @@ impl Engine {
             state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
+            _phantom: PhantomData,
         }
     }
 
@@ -352,7 +355,7 @@ impl Engine {
     /// deadlock.
     pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
-        F: FnOnce(&'a Engine) -> G,
+        F: FnOnce(&'a Engine<E>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match func(self).await {

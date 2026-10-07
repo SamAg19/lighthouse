@@ -464,7 +464,7 @@ pub enum FailedCondition {
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
 
 struct Inner<E: EthSpec> {
-    engine: Arc<Engine>,
+    engine: Arc<Engine<E>>,
     builder: ArcSwapOption<PreGloasBuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
@@ -564,7 +564,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::InvalidJWTSecret)
         }?;
 
-        let engine: Engine = {
+        let engine: Engine<E> = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
@@ -600,7 +600,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(el)
     }
 
-    fn engine(&self) -> &Arc<Engine> {
+    fn engine(&self) -> &Arc<Engine<E>> {
         &self.inner.engine
     }
 
@@ -1669,7 +1669,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         self.engine()
-            .request(|engine: &Engine| async move {
+            .request(|engine: &Engine<E>| async move {
                 engine.api.get_payload_bodies_by_hash_v1(hashes).await
             })
             .await
@@ -1688,7 +1688,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
 
         self.engine()
-            .request(|engine: &Engine| async move {
+            .request(|engine: &Engine<E>| async move {
                 engine.api.get_payload_bodies_by_hash_v2(hashes).await
             })
             .await
