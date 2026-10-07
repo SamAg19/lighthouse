@@ -1,10 +1,11 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
+use crate::ClientVersionV1;
+use crate::engine_api::transport::EngineApi;
 use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::{ClientVersionV1, HttpJsonRpc};
 use hashlink::lru_cache::LruCache;
 use ssz_derive::{Decode, Encode};
 use std::future::Future;
@@ -15,7 +16,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::{ColumnIndex, EthSpec, ExecutionBlockHash};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -122,17 +123,17 @@ pub enum EngineError {
 
 /// An execution engine.
 pub struct Engine<E: EthSpec> {
-    pub api: HttpJsonRpc,
+    pub api: EngineApi,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
-    latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
+    latest_forkchoice_state: RwLock<Option<(ForkchoiceState, ForkName)>>,
     executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> Engine<E> {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
+    pub fn new(api: EngineApi, executor: TaskExecutor) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
@@ -162,18 +163,31 @@ impl<E: EthSpec> Engine<E> {
             .cloned()
     }
 
+    pub async fn invalidate_payload_id(
+        &self,
+        head_block_hash: &ExecutionBlockHash,
+        payload_attributes: &PayloadAttributes,
+    ) {
+        self.payload_id_cache
+            .lock()
+            .await
+            .remove(&PayloadIdCacheKey::new(head_block_hash, payload_attributes));
+    }
+
     pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         custody_columns: Option<&[ColumnIndex]>,
+        fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated(
+            .forkchoice_updated::<E>(
                 forkchoice_state,
                 payload_attributes.clone(),
                 custody_columns,
+                fork,
             )
             .await?;
 
@@ -190,18 +204,18 @@ impl<E: EthSpec> Engine<E> {
         Ok(response)
     }
 
-    async fn get_latest_forkchoice_state(&self) -> Option<ForkchoiceState> {
+    async fn get_latest_forkchoice_state(&self) -> Option<(ForkchoiceState, ForkName)> {
         *self.latest_forkchoice_state.read().await
     }
 
-    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState) {
-        *self.latest_forkchoice_state.write().await = Some(state);
+    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState, fork: ForkName) {
+        *self.latest_forkchoice_state.write().await = Some((state, fork));
     }
 
     async fn send_latest_forkchoice_state(&self) {
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
-        if let Some(forkchoice_state) = latest_forkchoice_state {
+        if let Some((forkchoice_state, fork)) = latest_forkchoice_state {
             if forkchoice_state.head_block_hash == ExecutionBlockHash::zero() {
                 debug!(
                     msg = "head does not have execution enabled",
@@ -216,7 +230,7 @@ impl<E: EthSpec> Engine<E> {
             // call. It may be reasonable to include them in the future.
             if let Err(e) = self
                 .api
-                .forkchoice_updated(forkchoice_state, None, None)
+                .forkchoice_updated::<E>(forkchoice_state, None, None, fork)
                 .await
             {
                 debug!(

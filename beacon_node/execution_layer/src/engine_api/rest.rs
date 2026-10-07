@@ -1,5 +1,6 @@
 //! Contains an implementation of the Engine API over REST + SSZ (execution-apis#793).
 
+use crate::EngineCapabilities;
 use crate::auth::Auth;
 use crate::engine_api::{
     ClientVersionV1, ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT, ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
@@ -23,7 +24,7 @@ use ssz::{Decode, Encode};
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tracing::error;
+use tracing::{error, info};
 use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256};
 
 const BASE: &str = "/engine/v1";
@@ -119,6 +120,32 @@ impl HttpRestSsz {
         }
     }
 
+    /// Probe h2c then latch the REST transport (HTTP/2, else HTTP/1.1), returning capabilities.
+    pub async fn resolve_http_and_get_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        let capabilities = match self.get_engine_capabilities(age_limit).await {
+            Err(e) if e.is_transport_unreachable() => {
+                let _ = self.http_version.set(HttpVersion::Http1);
+                self.get_engine_capabilities(age_limit).await
+            }
+            other => {
+                let _ = self.http_version.set(HttpVersion::Http2);
+                other
+            }
+        };
+        if capabilities.is_ok()
+            && let Some(version) = self.http_version.get()
+        {
+            info!(
+                transport = version.as_str(),
+                "Selected REST-SSZ engine transport"
+            );
+        }
+        capabilities
+    }
+
     /// The single REST-SSZ transport chokepoint. `Some(bytes)` on `200`, `None` on `204`.
     pub async fn rest_request(
         &self,
@@ -194,6 +221,15 @@ impl HttpRestSsz {
                 })
             }
         }
+    }
+
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        Ok(EngineCapabilities::Ssz(
+            self.get_ssz_capabilities(age_limit).await?,
+        ))
     }
 
     pub async fn get_ssz_capabilities(

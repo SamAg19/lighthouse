@@ -134,6 +134,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                ForkName::Bellatrix,
             )
             .await
             .unwrap();
@@ -243,6 +244,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                     block_number,
                     timestamp,
                     prev_randao,
+                    ForkName::Bellatrix,
                 )
                 .await;
             }
@@ -256,6 +258,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                     block_number,
                     timestamp,
                     prev_randao,
+                    ForkName::Bellatrix,
                 )
                 .await;
             }
@@ -274,6 +277,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         block_number: u64,
         timestamp: u64,
         prev_randao: H256,
+        fork: ForkName,
     ) {
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);
@@ -309,6 +313,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
                 &[],
+                fork,
             )
             .await
             .unwrap();
