@@ -71,6 +71,7 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_NEW_PAYLOAD_V4
         | ENGINE_NEW_PAYLOAD_V5
         | ENGINE_NEW_PAYLOAD_V6 => {
+            ctx.hook.lock().on_new_payload(method, params);
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -209,9 +210,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Heze => {
-                    // TODO(heze): drop V5 here once `NewPayloadRequest::Heze` is constructed. The
-                    // payload notifier still builds the Gloas request, so Heze blocks send V5.
-                    if method != ENGINE_NEW_PAYLOAD_V5 && method != ENGINE_NEW_PAYLOAD_V6 {
+                    if method != ENGINE_NEW_PAYLOAD_V6 {
                         return Err((
                             format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
@@ -224,10 +223,10 @@ pub async fn handle_rpc<E: EthSpec>(
             let mut status = ctx.core_new_payload(request.try_into().unwrap())?;
 
             if method == ENGINE_NEW_PAYLOAD_V6 {
-                // TODO(heze): make this configurable so enforcement tests can exercise an
-                // unsatisfied payload.
                 if status.status == PayloadStatusV1Status::Valid {
-                    status.inclusion_list_satisfied = Some(true);
+                    status
+                        .inclusion_list_satisfied
+                        .get_or_insert(*ctx.new_payload_inclusion_list_satisfied.lock());
                 }
                 Ok(serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap())
             } else {
