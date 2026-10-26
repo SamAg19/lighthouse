@@ -50,6 +50,8 @@ pub(super) enum Admission<E: EthSpec> {
 }
 
 /// A request released from the delayed requests queue.
+// Heze's `InclusionListsByIndices` request makes `RequestType` large enough to trip this lint.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum ReadyRequest<E: EthSpec> {
     /// The rate limiter now allows the execution of the request.
     Execute {

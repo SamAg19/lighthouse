@@ -3,8 +3,8 @@ use serde_json::json;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_types::{ProgressiveVariableList, VariableList};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, Hash256, ProgressiveTransactions,
-    ProgressiveWithdrawals,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeze, ForkName, Hash256,
+    ProgressiveTransactions, ProgressiveWithdrawals,
 };
 use warp::http::Response;
 
@@ -223,9 +223,16 @@ fn decode_new_payload<E: EthSpec>(
         ForkName::Gloas => ExecutionPayload::Gloas(
             SszExecutionPayloadEnvelopeGloas::from_ssz_bytes(body)?.execution_payload,
         ),
-        ForkName::Heze => ExecutionPayload::Heze(
-            SszExecutionPayloadEnvelopeHeze::from_ssz_bytes(body)?.execution_payload,
-        ),
+        ForkName::Heze => {
+            // The Heze envelope carries an `ExecutionPayloadGloas`; the Heze payload has the
+            // same SSZ schema. Re-decode it as `ExecutionPayload::Heze`, like the JSON mock's
+            // `engine_newPayloadV6` path, so the mock core sees the payload's real fork.
+            let payload =
+                SszExecutionPayloadEnvelopeHeze::<E>::from_ssz_bytes(body)?.execution_payload;
+            ExecutionPayload::Heze(ExecutionPayloadHeze::from_ssz_bytes(
+                &payload.as_ssz_bytes(),
+            )?)
+        }
         ForkName::Base | ForkName::Altair => {
             return Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for new_payload envelope: {fork}"

@@ -235,10 +235,9 @@ pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
     pub execution_payload: ExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    /// The Heze envelope carries the Gloas payload, as `NewPayloadRequest` does.
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
-    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
-    pub execution_payload: ExecutionPayloadHeze<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(Electra, Fulu, Gloas, Heze))]
