@@ -23,6 +23,7 @@ pub const DIRECTION_REQUEST: &str = "request";
 pub const DIRECTION_RESPONSE: &str = "response";
 
 pub const GET_PAYLOAD_BODIES_BY_HASH: &str = "get_payload_bodies_by_hash";
+pub const GET_INCLUSION_LIST: &str = "get_inclusion_list";
 pub const GET_BLOBS_V2: &str = "get_blobs_v2";
 pub const GET_BLOBS_V3: &str = "get_blobs_v3";
 pub const GET_BLOBS_V4: &str = "get_blobs_v4";

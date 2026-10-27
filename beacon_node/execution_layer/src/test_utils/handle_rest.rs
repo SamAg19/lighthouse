@@ -57,7 +57,7 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 Err(err) => return core_error_response(err),
             };
 
-            match SszPayloadStatusV1::<E>::try_from(status) {
+            match SszPayloadStatus::<E>::new(fork, status) {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
@@ -79,9 +79,10 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 Err(err) => return core_error_response(err),
             };
 
-            match SszForkchoiceUpdatedResponse::<E>::try_from(ForkchoiceUpdatedResponse::from(
-                response,
-            )) {
+            match SszForkchoiceUpdatedResponse::<E>::new(
+                fork,
+                ForkchoiceUpdatedResponse::from(response),
+            ) {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
