@@ -199,11 +199,10 @@ impl EngineApi {
 
     pub async fn get_inclusion_list_v1<E: EthSpec>(
         &self,
+        fork: ForkName,
     ) -> Result<ProgressiveTransactions, EngineApiError> {
         match self.active_rest() {
-            Some(_) => Err(EngineApiError::RequiredMethodUnsupported(
-                "get_inclusion_list_v1 not supported for REST-SSZ",
-            )),
+            Some(rest) => rest.get_inclusion_list::<E>(fork).await,
             None => self.json_rpc.get_inclusion_list_v1().await,
         }
     }

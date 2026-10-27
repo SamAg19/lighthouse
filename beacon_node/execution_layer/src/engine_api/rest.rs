@@ -1509,4 +1509,61 @@ mod tests {
             )
             .await;
     }
+
+    #[tokio::test]
+    async fn new_payload_heze_round_trip_reports_inclusion_list_satisfied() {
+        let payload = ExecutionPayloadGloas::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsGloas::<MainnetEthSpec>::default();
+        let tester = RestTester::new(true);
+        tester.server.all_payloads_valid_on_new_payload();
+        tester
+            .server
+            .set_new_payload_inclusion_list_satisfied(false);
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let payload = payload.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                            execution_payload: &payload,
+                            versioned_hashes: vec![],
+                            parent_beacon_block_root: Hash256::repeat_byte(0),
+                            execution_requests: &execution_requests,
+                            inclusion_list_transactions: <_>::default(),
+                        });
+                        client.new_payload::<MainnetEthSpec>(request).await
+                    }
+                },
+                |status| {
+                    assert_eq!(status.status, PayloadStatusV1Status::Valid);
+                    assert_eq!(status.inclusion_list_satisfied, Some(false));
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_inclusion_list_round_trip() {
+        let inclusion_list: ProgressiveTransactions = ProgressiveVariableList::new(vec![
+            ProgressiveVariableList::new(vec![0xaa]).unwrap(),
+            ProgressiveVariableList::new(vec![0xbb, 0xcc]).unwrap(),
+        ])
+        .unwrap();
+        let tester = RestTester::new(true);
+        tester
+            .server
+            .execution_block_generator()
+            .set_inclusion_list(inclusion_list.clone());
+        tester
+            .assert_ssz_response(
+                |client| async move {
+                    client
+                        .get_inclusion_list::<MainnetEthSpec>(ForkName::Heze)
+                        .await
+                },
+                |transactions| assert_eq!(transactions, inclusion_list),
+            )
+            .await;
+    }
 }

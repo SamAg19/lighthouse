@@ -85,7 +85,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
 // SszExecutionPayloadBodyV1 <-> ExecutionPayloadBodyV2
 
 /// Repackage the bounded SSZ wire transactions into the progressive (Gloas) container.
-fn progressive_transactions_from_wire<E: EthSpec>(
+pub(crate) fn progressive_transactions_from_wire<E: EthSpec>(
     transactions: Transactions<E>,
 ) -> Result<ProgressiveTransactions, ssz_types::Error> {
     transactions
