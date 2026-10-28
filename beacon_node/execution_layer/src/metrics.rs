@@ -161,6 +161,7 @@ pub fn engine_method_label(jsonrpc_method: &str) -> Option<&'static str> {
         "engine_getBlobsV2" => Some(GET_BLOBS_V2),
         "engine_getBlobsV3" => Some(GET_BLOBS_V3),
         "engine_getBlobsV4" => Some(GET_BLOBS_V4),
+        "engine_getInclusionListV1" => Some(GET_INCLUSION_LIST),
         m if m.starts_with("engine_getPayload") => Some(GET_PAYLOAD),
         _ => None,
     }
