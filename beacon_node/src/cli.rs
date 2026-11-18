@@ -848,7 +848,9 @@ pub fn cli_app() -> Command {
                 .alias("execution-endpoints")
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache. Optional when --proof-engine-endpoint is set.")
+                       deposit cache. Optional when --proof-engine-endpoint is set. \
+                       Use ipc:///path/to/socket to connect over a Unix domain socket \
+                       (HTTP over UDS; JWT still required).")
                 .required_unless_present("proof-engine-endpoint")
                 .action(ArgAction::Set)
                 .display_order(0)

@@ -542,6 +542,29 @@ fn execution_timeout_multiplier_flag() {
             assert_eq!(config.execution_timeout_multiplier, Some(3));
         });
 }
+
+#[test]
+fn execution_endpoint_ipc() {
+    let ipc_url = "ipc:///tmp/test.ipc";
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("execution-endpoint", Some(ipc_url))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .map(|url| url.expose_full().as_str()),
+                Some(ipc_url)
+            );
+        });
+}
 #[test]
 fn bellatrix_execution_endpoints_flag() {
     run_bellatrix_execution_endpoints_flag_test("execution-endpoints")

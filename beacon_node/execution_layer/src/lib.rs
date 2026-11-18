@@ -140,6 +140,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
 #[derive(Debug)]
 pub enum Error {
     NoEngine,
+    UnsupportedProtocol(String),
     NoPayloadBuilder,
     ApiError(ApiError),
     // The pre-Gloas builder client uses the beacon-node API client's error type.
@@ -586,25 +587,45 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::InvalidJWTSecret)
         }?;
 
+        // `ipc:///path` speaks the same HTTP as TCP, over a Unix domain socket. Requests then go to
+        // `http://localhost/`, which sets the `Host` header and the base path.
+        let scheme = execution_url.expose_full().scheme().to_string();
+        let (request_url, unix_socket) = match scheme.as_str() {
+            "http" | "https" => (execution_url.clone(), None),
+            "ipc" => {
+                let socket = PathBuf::from(execution_url.expose_full().path());
+                let request_url = SensitiveUrl::parse("http://localhost/")
+                    .map_err(|e| Error::Unexpected(format!("{e:?}")))?;
+                (request_url, Some(socket))
+            }
+            _ => return Err(Error::UnsupportedProtocol(scheme)),
+        };
+
         let engine: Engine<E> = {
-            debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
+            // The redacted endpoint prints as `ipc:///`, so the socket path is logged separately.
+            debug!(endpoint = %execution_url, socket = ?unix_socket, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let rest_ssz = if engine_api_rest_ssz {
                 let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), None);
-                Some(
-                    HttpRestSsz::new_with_auth(
-                        execution_url.clone(),
-                        rest_auth,
-                        execution_timeout_multiplier,
-                    )
-                    .map_err(Error::ApiError)?,
+                let mut rest_ssz = HttpRestSsz::new_with_auth(
+                    request_url.clone(),
+                    rest_auth,
+                    execution_timeout_multiplier,
                 )
+                .map_err(Error::ApiError)?;
+                if let Some(path) = &unix_socket {
+                    rest_ssz = rest_ssz.with_unix_socket(path).map_err(Error::ApiError)?;
+                }
+                Some(rest_ssz)
             } else {
                 None
             };
             let json_auth = Auth::new(jwt_key, jwt_id, jwt_version);
-            let json_rpc =
-                HttpJsonRpc::new_with_auth(execution_url, json_auth, execution_timeout_multiplier)
+            let mut json_rpc =
+                HttpJsonRpc::new_with_auth(request_url, json_auth, execution_timeout_multiplier)
                     .map_err(Error::ApiError)?;
+            if let Some(path) = &unix_socket {
+                json_rpc = json_rpc.with_unix_socket(path).map_err(Error::ApiError)?;
+            }
             let api = EngineApi::new(json_rpc, rest_ssz);
             Engine::new(api, executor.clone())
         };

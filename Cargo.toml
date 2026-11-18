@@ -225,7 +225,7 @@ rust_eth_kzg = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
 safe_arith = "0.1"
-sensitive_url = { version = "0.1", features = ["serde"] }
+sensitive_url = { git = "https://github.com/sigp/sensitive_url", rev = "1a531b8072c95c7fc6d9610f59e598c4653f8dec", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"

@@ -11,7 +11,7 @@ use crate::engine_api::{
     PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
-use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
+use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION, apply_unix_socket};
 use crate::json_structures::{
     BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List, JsonClientVersionV1,
 };
@@ -23,6 +23,7 @@ use reqwest::{Client, Method, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Deserialize;
 use ssz::{Decode, Encode};
+use std::path::Path;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -103,9 +104,9 @@ impl HttpRestSsz {
     ) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client_h2c: Self::h2c_client()?,
-            client_h2c_bulk: Self::h2c_client()?,
-            client_h1: Client::builder().build()?,
+            client_h2c: Self::h2c_client(None)?,
+            client_h2c_bulk: Self::h2c_client(None)?,
+            client_h1: Self::h1_client(None)?,
             http_version: OnceLock::new(),
             url,
             execution_timeout_multiplier,
@@ -126,13 +127,28 @@ impl HttpRestSsz {
         })
     }
 
+    /// Connect over this Unix domain socket instead of TCP. Rebuilds every client and keeps the
+    /// rest.
+    pub fn with_unix_socket(self, path: &Path) -> Result<Self, Error> {
+        Ok(Self {
+            client_h2c: Self::h2c_client(Some(path))?,
+            client_h2c_bulk: Self::h2c_client(Some(path))?,
+            client_h1: Self::h1_client(Some(path))?,
+            ..self
+        })
+    }
+
     /// One h2c client. Every h2c client is built here so the two can never drift apart.
-    fn h2c_client() -> Result<Client, Error> {
-        Ok(Client::builder()
+    fn h2c_client(unix_socket: Option<&Path>) -> Result<Client, Error> {
+        let builder = Client::builder()
             .http2_prior_knowledge()
             .http2_initial_stream_window_size(H2_STREAM_WINDOW)
-            .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
-            .build()?)
+            .http2_initial_connection_window_size(H2_CONNECTION_WINDOW);
+        Ok(apply_unix_socket(builder, unix_socket)?.build()?)
+    }
+
+    fn h1_client(unix_socket: Option<&Path>) -> Result<Client, Error> {
+        Ok(apply_unix_socket(Client::builder(), unix_socket)?.build()?)
     }
 
     /// HTTP/1.1 ignores the class, since hyper already pools it.

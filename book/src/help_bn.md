@@ -151,7 +151,9 @@ Options:
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
-          Optional when --proof-engine-endpoint is set.
+          Optional when --proof-engine-endpoint is set. Use
+          ipc:///path/to/socket to connect over a Unix domain socket (HTTP over
+          UDS; JWT still required).
       --execution-jwt <EXECUTION-JWT>
           File path which contains the hex-encoded JWT secret for the execution
           endpoint provided in the --execution-endpoint flag.

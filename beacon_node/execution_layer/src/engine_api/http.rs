@@ -12,6 +12,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
 use tracing::Span;
@@ -22,8 +23,32 @@ use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
+use reqwest::ClientBuilder;
 use tracing::error;
 use types::ColumnIndex;
+
+/// Route every connection the client makes through `unix_socket`, when one is given. The request
+/// URL then supplies only the scheme, the `Host` header and the path.
+pub(crate) fn apply_unix_socket(
+    builder: ClientBuilder,
+    unix_socket: Option<&Path>,
+) -> Result<ClientBuilder, Error> {
+    let Some(path) = unix_socket else {
+        return Ok(builder);
+    };
+    #[cfg(unix)]
+    {
+        Ok(builder.unix_socket(path))
+    }
+    #[cfg(not(unix))]
+    {
+        drop(builder);
+        Err(Error::RequestFailed(format!(
+            "Unix domain sockets are not supported on this platform: {}",
+            path.display()
+        )))
+    }
+}
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -625,7 +650,7 @@ impl HttpJsonRpc {
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Self::json_rpc_client(None)?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -640,13 +665,25 @@ impl HttpJsonRpc {
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Self::json_rpc_client(None)?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
             engine_version_cache: Mutex::new(None),
             auth: Some(auth),
         })
+    }
+
+    /// Connect over this Unix domain socket instead of TCP. Everything else is kept.
+    pub fn with_unix_socket(self, path: &Path) -> Result<Self, Error> {
+        Ok(Self {
+            client: Self::json_rpc_client(Some(path))?,
+            ..self
+        })
+    }
+
+    fn json_rpc_client(unix_socket: Option<&Path>) -> Result<Client, Error> {
+        Ok(apply_unix_socket(Client::builder(), unix_socket)?.build()?)
     }
 
     pub async fn rpc_request<D: DeserializeOwned>(
