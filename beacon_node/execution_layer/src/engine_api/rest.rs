@@ -20,7 +20,7 @@ use reqwest::{Client, Method, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Deserialize;
 use ssz::{Decode, Encode};
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::error;
@@ -33,8 +33,6 @@ const X_ENGINE_CLIENT_VERSION: &str = "X-Engine-Client-Version";
 // SSZ for hot-path bodies/responses, JSON for the diagnostic endpoints.
 const OCTET_STREAM: &str = "application/octet-stream";
 const APPLICATION_JSON: &str = "application/json";
-const H2_CONNECTION_WINDOW: u32 = 1024 * 1024;
-const H2_STREAM_WINDOW: u32 = 1024 * 1024;
 
 // The CL's `X-Engine-Client-Version` header value, e.g. `LH/v6.2.1`.
 static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
@@ -43,21 +41,6 @@ static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
         LIGHTHOUSE_JSON_CLIENT_VERSION.code, LIGHTHOUSE_JSON_CLIENT_VERSION.version
     )
 });
-
-#[derive(Debug, Copy, Clone)]
-pub enum HttpVersion {
-    Http2,
-    Http1,
-}
-
-impl HttpVersion {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            HttpVersion::Http2 => "http2",
-            HttpVersion::Http1 => "http1",
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct JsonProblem {
@@ -69,9 +52,7 @@ struct JsonProblem {
 /// A REST + SSZ Engine API client. Mirrors `HttpJsonRpc`, but speaks `/engine/v1/...` with
 /// `application/octet-stream` SSZ bodies and RFC 7807 problem responses.
 pub struct HttpRestSsz {
-    pub client_h2c: Client,
-    pub client_h1: Client,
-    pub http_version: OnceLock<HttpVersion>,
+    pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub ssz_capabilities_cache: Mutex<Option<CachedResponse<SszCapabilities>>>,
@@ -86,13 +67,7 @@ impl HttpRestSsz {
     ) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client_h2c: Client::builder()
-                .http2_prior_knowledge()
-                .http2_initial_stream_window_size(H2_STREAM_WINDOW)
-                .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
-                .build()?,
-            client_h1: Client::builder().build()?,
-            http_version: OnceLock::new(),
+            client: Client::builder().build()?,
             url,
             execution_timeout_multiplier,
             ssz_capabilities_cache: Mutex::new(None),
@@ -112,13 +87,6 @@ impl HttpRestSsz {
         })
     }
 
-    fn selected_client(&self) -> &Client {
-        match self.http_version.get() {
-            None | Some(HttpVersion::Http2) => &self.client_h2c,
-            Some(HttpVersion::Http1) => &self.client_h1,
-        }
-    }
-
     /// The single REST-SSZ transport chokepoint. `Some(bytes)` on `200`, `None` on `204`.
     pub async fn rest_request(
         &self,
@@ -129,14 +97,14 @@ impl HttpRestSsz {
         accept: &str,
         timeout: Duration,
     ) -> Result<Option<Bytes>, Error> {
-        let client = self.selected_client();
         let url = self
             .url
             .expose_full()
             .join(&format!("{BASE}/{path}"))
             .map_err(|e| Error::RequestFailed(format!("failed to build REST url: {e}")))?;
 
-        let mut request = client
+        let mut request = self
+            .client
             .request(method, url)
             .timeout(timeout)
             .header(ACCEPT, accept)
