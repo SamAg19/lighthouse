@@ -571,7 +571,8 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime;
     use types::{
-        Address, ExecutionPayloadDeneb, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra, ExecutionRequestsGloas, Spec,
+        Address, ExecutionPayloadDeneb, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, Spec,
     };
 
     #[test]
