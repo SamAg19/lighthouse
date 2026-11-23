@@ -20,7 +20,7 @@ use reqwest::{Client, Method, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Deserialize;
 use ssz::{Decode, Encode};
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::error;
@@ -33,8 +33,6 @@ const X_ENGINE_CLIENT_VERSION: &str = "X-Engine-Client-Version";
 // SSZ for hot-path bodies/responses, JSON for the diagnostic endpoints.
 const OCTET_STREAM: &str = "application/octet-stream";
 const APPLICATION_JSON: &str = "application/json";
-const H2_CONNECTION_WINDOW: u32 = 1024 * 1024;
-const H2_STREAM_WINDOW: u32 = 1024 * 1024;
 
 // The CL's `X-Engine-Client-Version` header value, e.g. `LH/v6.2.1`.
 static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
@@ -43,21 +41,6 @@ static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
         LIGHTHOUSE_JSON_CLIENT_VERSION.code, LIGHTHOUSE_JSON_CLIENT_VERSION.version
     )
 });
-
-#[derive(Debug, Copy, Clone)]
-pub enum HttpVersion {
-    Http2,
-    Http1,
-}
-
-impl HttpVersion {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            HttpVersion::Http2 => "http2",
-            HttpVersion::Http1 => "http1",
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct JsonProblem {
@@ -69,9 +52,7 @@ struct JsonProblem {
 /// A REST + SSZ Engine API client. Mirrors `HttpJsonRpc`, but speaks `/engine/v1/...` with
 /// `application/octet-stream` SSZ bodies and RFC 7807 problem responses.
 pub struct HttpRestSsz {
-    pub client_h2c: Client,
-    pub client_h1: Client,
-    pub http_version: OnceLock<HttpVersion>,
+    pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
     pub ssz_capabilities_cache: Mutex<Option<CachedResponse<SszCapabilities>>>,
@@ -86,13 +67,7 @@ impl HttpRestSsz {
     ) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client_h2c: Client::builder()
-                .http2_prior_knowledge()
-                .http2_initial_stream_window_size(H2_STREAM_WINDOW)
-                .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
-                .build()?,
-            client_h1: Client::builder().build()?,
-            http_version: OnceLock::new(),
+            client: Client::builder().build()?,
             url,
             execution_timeout_multiplier,
             ssz_capabilities_cache: Mutex::new(None),
@@ -112,13 +87,6 @@ impl HttpRestSsz {
         })
     }
 
-    fn selected_client(&self) -> &Client {
-        match self.http_version.get() {
-            None | Some(HttpVersion::Http2) => &self.client_h2c,
-            Some(HttpVersion::Http1) => &self.client_h1,
-        }
-    }
-
     /// The single REST-SSZ transport chokepoint. `Some(bytes)` on `200`, `None` on `204`.
     pub async fn rest_request(
         &self,
@@ -129,14 +97,14 @@ impl HttpRestSsz {
         accept: &str,
         timeout: Duration,
     ) -> Result<Option<Bytes>, Error> {
-        let client = self.selected_client();
         let url = self
             .url
             .expose_full()
             .join(&format!("{BASE}/{path}"))
             .map_err(|e| Error::RequestFailed(format!("failed to build REST url: {e}")))?;
 
-        let mut request = client
+        let mut request = self
+            .client
             .request(method, url)
             .timeout(timeout)
             .header(ACCEPT, accept)
@@ -322,8 +290,7 @@ impl HttpRestSsz {
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads".to_string()))?;
 
-        let status =
-            SszPayloadStatusV1::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let status = SszPayloadStatusV1::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         PayloadStatusV1::try_from(status)
     }
 
@@ -337,15 +304,23 @@ impl HttpRestSsz {
         let custody_columns = Self::custody_columns_param(custody_columns, fork);
 
         let body = if fork >= ForkName::Gloas {
-            SszForkchoiceUpdateCustodyColumns::<E>::new(
+            match SszForkchoiceUpdateCustodyColumns::<E>::new(
                 fork,
                 forkchoice_state,
                 payload_attributes,
                 custody_columns,
-            )?
-            .as_ssz_bytes()
+            )? {
+                SszForkchoiceUpdateCustodyColumns::Gloas(update) => update.as_ssz_bytes(),
+                SszForkchoiceUpdateCustodyColumns::Heze(update) => update.as_ssz_bytes(),
+            }
         } else {
-            SszForkchoiceUpdate::new(fork, forkchoice_state, payload_attributes)?.as_ssz_bytes()
+            match SszForkchoiceUpdate::new(fork, forkchoice_state, payload_attributes)? {
+                SszForkchoiceUpdate::Bellatrix(update) => update.as_ssz_bytes(),
+                SszForkchoiceUpdate::Capella(update) => update.as_ssz_bytes(),
+                SszForkchoiceUpdate::Deneb(update) => update.as_ssz_bytes(),
+                SszForkchoiceUpdate::Electra(update) => update.as_ssz_bytes(),
+                SszForkchoiceUpdate::Fulu(update) => update.as_ssz_bytes(),
+            }
         };
 
         let response = self
@@ -360,8 +335,8 @@ impl HttpRestSsz {
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /forkchoice".to_string()))?;
 
-        let ssz_response = SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes(&response)
-            .map_err(Error::SszDecode)?;
+        let ssz_response =
+            SszForkchoiceUpdatedResponse::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
         let response = ForkchoiceUpdatedResponse::try_from(ssz_response)?;
 
         // `/forkchoice` MUST NOT return ACCEPTED; treat a `3` as a non-conformant EL error.
@@ -422,7 +397,7 @@ impl HttpRestSsz {
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
-        let body = SszBlobsRequest::<E>::new_blobs_request_v1(versioned_hashes)?.as_ssz_bytes();
+        let body = SszBlobsRequestV1::new(versioned_hashes)?.as_ssz_bytes();
         let Some(response) = self
             .rest_request(
                 Method::POST,
@@ -438,14 +413,14 @@ impl HttpRestSsz {
         };
         let response =
             SszBlobsResponseV2::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
-        Ok(Some(response.into_v2()))
+        Ok(Some(response.into_v2()?))
     }
 
     pub async fn get_blobs_v3<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
-        let body = SszBlobsRequest::<E>::new_blobs_request_v1(versioned_hashes)?.as_ssz_bytes();
+        let body = SszBlobsRequestV1::new(versioned_hashes)?.as_ssz_bytes();
         let Some(response) = self
             .rest_request(
                 Method::POST,
@@ -469,8 +444,7 @@ impl HttpRestSsz {
         versioned_hashes: Vec<Hash256>,
         indices_bitarray: CustodyColumnsBitArray,
     ) -> Result<Option<GetBlobsV4List<E>>, Error> {
-        let body = SszBlobsRequest::<E>::new_blobs_request_v2(versioned_hashes, indices_bitarray)?
-            .as_ssz_bytes();
+        let body = SszBlobsRequestV2::<E>::new(versioned_hashes, indices_bitarray)?.as_ssz_bytes();
         let Some(response) = self
             .rest_request(
                 Method::POST,
@@ -652,8 +626,8 @@ mod tests {
         assert_eq!(capabilities.limits.blobs_max_versioned_hashes, Some(128));
         assert_eq!(capabilities.limits.payload_max_bytes, Some(67108864));
 
-        assert!(capabilities.new_payload(ForkName::Gloas));
-        assert!(!capabilities.new_payload(ForkName::Base));
+        assert!(capabilities.payloads(ForkName::Gloas));
+        assert!(!capabilities.payloads(ForkName::Base));
         assert_eq!(capabilities.highest_supported_fork(), Some(ForkName::Gloas));
     }
 
@@ -718,7 +692,8 @@ mod tests {
             let server = MockServer::new_with_config(&runtime::Handle::current(), config, None);
             let url = SensitiveUrl::parse(&server.url()).unwrap();
             let client = if with_auth {
-                let auth = Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
+                let auth = Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None)
+                    .unwrap();
                 Arc::new(HttpRestSsz::new_with_auth(url, auth, None).unwrap())
             } else {
                 Arc::new(HttpRestSsz::new(url, None).unwrap())
@@ -809,7 +784,7 @@ mod tests {
     async fn get_blobs_v2_request_conformance() {
         let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
         let expected_body = Bytes::from(
-            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v1(versioned_hashes.clone())
+            SszBlobsRequestV1::new(versioned_hashes.clone())
                 .unwrap()
                 .as_ssz_bytes(),
         );
@@ -837,7 +812,7 @@ mod tests {
     async fn get_blobs_v3_request_conformance() {
         let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
         let expected_body = Bytes::from(
-            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v1(versioned_hashes.clone())
+            SszBlobsRequestV1::new(versioned_hashes.clone())
                 .unwrap()
                 .as_ssz_bytes(),
         );
@@ -866,12 +841,9 @@ mod tests {
         let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
         let indices_bitarray = CustodyColumnsBitArray::try_from([0u64, 1, 2].as_slice()).unwrap();
         let expected_body = Bytes::from(
-            SszBlobsRequest::<MainnetEthSpec>::new_blobs_request_v2(
-                versioned_hashes.clone(),
-                indices_bitarray,
-            )
-            .unwrap()
-            .as_ssz_bytes(),
+            SszBlobsRequestV2::<MainnetEthSpec>::new(versioned_hashes.clone(), indices_bitarray)
+                .unwrap()
+                .as_ssz_bytes(),
         );
         RestTester::new(true)
             .assert_ssz_request_equals(
@@ -977,6 +949,8 @@ mod tests {
         let expected_body = Bytes::from(
             SszForkchoiceUpdate::new(ForkName::Deneb, state, None)
                 .unwrap()
+                .as_deneb()
+                .unwrap()
                 .as_ssz_bytes(),
         );
         RestTester::new(true)
@@ -1011,6 +985,8 @@ mod tests {
         );
         let expected_body = Bytes::from(
             SszForkchoiceUpdate::new(ForkName::Deneb, state, Some(attributes.clone()))
+                .unwrap()
+                .as_deneb()
                 .unwrap()
                 .as_ssz_bytes(),
         );
@@ -1049,6 +1025,8 @@ mod tests {
                 None,
                 None,
             )
+            .unwrap()
+            .as_gloas()
             .unwrap()
             .as_ssz_bytes(),
         );
