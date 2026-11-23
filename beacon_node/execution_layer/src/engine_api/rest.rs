@@ -569,8 +569,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime;
     use types::{
-        Address, ExecutionPayloadDeneb, ExecutionPayloadGloas, ExecutionRequestsGloas,
-        MainnetEthSpec,
+        Address, ExecutionPayloadDeneb, ExecutionPayloadGloas, ExecutionRequestsGloas, Spec,
     };
 
     #[test]
@@ -682,7 +681,7 @@ mod tests {
     }
 
     struct RestTester {
-        server: MockServer<MainnetEthSpec>,
+        server: MockServer<Spec>,
         client: Arc<HttpRestSsz>,
     }
 
@@ -777,7 +776,7 @@ mod tests {
             .assert_ssz_request_equals(
                 move |client| async move {
                     let _ = client
-                        .get_payload::<MainnetEthSpec>(ForkName::Deneb, payload_id)
+                        .get_payload::<Spec>(ForkName::Deneb, payload_id)
                         .await;
                 },
                 ExpectedRest {
@@ -803,9 +802,7 @@ mod tests {
                 move |client| {
                     let versioned_hashes = versioned_hashes.clone();
                     async move {
-                        let _ = client
-                            .get_blobs_v2::<MainnetEthSpec>(versioned_hashes)
-                            .await;
+                        let _ = client.get_blobs_v2::<Spec>(versioned_hashes).await;
                     }
                 },
                 ExpectedRest {
@@ -831,9 +828,7 @@ mod tests {
                 move |client| {
                     let versioned_hashes = versioned_hashes.clone();
                     async move {
-                        let _ = client
-                            .get_blobs_v3::<MainnetEthSpec>(versioned_hashes)
-                            .await;
+                        let _ = client.get_blobs_v3::<Spec>(versioned_hashes).await;
                     }
                 },
                 ExpectedRest {
@@ -851,7 +846,7 @@ mod tests {
         let versioned_hashes = vec![Hash256::repeat_byte(1), Hash256::repeat_byte(2)];
         let indices_bitarray = CustodyColumnsBitArray::try_from([0u64, 1, 2].as_slice()).unwrap();
         let expected_body = Bytes::from(
-            SszBlobsRequestV2::<MainnetEthSpec>::new(versioned_hashes.clone(), indices_bitarray)
+            SszBlobsRequestV2::<Spec>::new(versioned_hashes.clone(), indices_bitarray)
                 .unwrap()
                 .as_ssz_bytes(),
         );
@@ -861,7 +856,7 @@ mod tests {
                     let versioned_hashes = versioned_hashes.clone();
                     async move {
                         let _ = client
-                            .get_blobs_v4::<MainnetEthSpec>(versioned_hashes, indices_bitarray)
+                            .get_blobs_v4::<Spec>(versioned_hashes, indices_bitarray)
                             .await;
                     }
                 },
@@ -893,10 +888,7 @@ mod tests {
                     let block_hashes = block_hashes.clone();
                     async move {
                         let _ = client
-                            .get_payload_bodies_by_hash_v1::<MainnetEthSpec>(
-                                ForkName::Fulu,
-                                block_hashes,
-                            )
+                            .get_payload_bodies_by_hash_v1::<Spec>(ForkName::Fulu, block_hashes)
                             .await;
                     }
                 },
@@ -928,10 +920,7 @@ mod tests {
                     let block_hashes = block_hashes.clone();
                     async move {
                         let _ = client
-                            .get_payload_bodies_by_hash_v2::<MainnetEthSpec>(
-                                ForkName::Gloas,
-                                block_hashes,
-                            )
+                            .get_payload_bodies_by_hash_v2::<Spec>(ForkName::Gloas, block_hashes)
                             .await;
                     }
                 },
@@ -967,7 +956,7 @@ mod tests {
             .assert_ssz_request_equals(
                 move |client| async move {
                     let _ = client
-                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Deneb, state, None, None)
+                        .forkchoice_updated::<Spec>(ForkName::Deneb, state, None, None)
                         .await;
                 },
                 ExpectedRest {
@@ -1006,7 +995,7 @@ mod tests {
                     let attributes = attributes.clone();
                     async move {
                         let _ = client
-                            .forkchoice_updated::<MainnetEthSpec>(
+                            .forkchoice_updated::<Spec>(
                                 ForkName::Deneb,
                                 state,
                                 Some(attributes),
@@ -1029,22 +1018,17 @@ mod tests {
     async fn forkchoice_updated_amsterdam_request_conformance() {
         let state = forkchoice_state();
         let expected_body = Bytes::from(
-            SszForkchoiceUpdateCustodyColumns::<MainnetEthSpec>::new(
-                ForkName::Gloas,
-                state,
-                None,
-                None,
-            )
-            .unwrap()
-            .as_gloas()
-            .unwrap()
-            .as_ssz_bytes(),
+            SszForkchoiceUpdateCustodyColumns::<Spec>::new(ForkName::Gloas, state, None, None)
+                .unwrap()
+                .as_gloas()
+                .unwrap()
+                .as_ssz_bytes(),
         );
         RestTester::new(true)
             .assert_ssz_request_equals(
                 move |client| async move {
                     let _ = client
-                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Gloas, state, None, None)
+                        .forkchoice_updated::<Spec>(ForkName::Gloas, state, None, None)
                         .await;
                 },
                 ExpectedRest {
@@ -1059,7 +1043,7 @@ mod tests {
 
     #[tokio::test]
     async fn new_payload_deneb_request_conformance() {
-        let payload = ExecutionPayloadDeneb::<MainnetEthSpec>::default();
+        let payload = ExecutionPayloadDeneb::<Spec>::default();
         let versioned_hashes = vec![Hash256::repeat_byte(7)];
         let parent_beacon_block_root = Hash256::repeat_byte(8);
         // The envelope drops `versioned_hashes`; the byte-compare confirms they are not sent.
@@ -1082,7 +1066,7 @@ mod tests {
                             versioned_hashes,
                             parent_beacon_block_root,
                         });
-                        let _ = client.new_payload::<MainnetEthSpec>(request).await;
+                        let _ = client.new_payload::<Spec>(request).await;
                     }
                 },
                 ExpectedRest {
@@ -1097,10 +1081,10 @@ mod tests {
 
     #[tokio::test]
     async fn new_payload_gloas_request_conformance() {
-        let payload = ExecutionPayloadGloas::<MainnetEthSpec>::default();
+        let payload = ExecutionPayloadGloas::<Spec>::default();
         let versioned_hashes = vec![Hash256::repeat_byte(7)];
         let parent_beacon_block_root = Hash256::repeat_byte(8);
-        let execution_requests = ExecutionRequestsGloas::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsGloas::<Spec>::default();
         let expected_body = Bytes::from(
             SszExecutionPayloadEnvelopeGloas::try_from(NewPayloadRequestGloas {
                 execution_payload: &payload,
@@ -1124,7 +1108,7 @@ mod tests {
                             parent_beacon_block_root,
                             execution_requests: &execution_requests,
                         });
-                        let _ = client.new_payload::<MainnetEthSpec>(request).await;
+                        let _ = client.new_payload::<Spec>(request).await;
                     }
                 },
                 ExpectedRest {
