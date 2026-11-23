@@ -14,7 +14,7 @@ use crate::{ClientVersionV1, HttpJsonRpc};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tracing::warn;
+use tracing::{info, warn};
 use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256, ProgressiveTransactions};
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
@@ -241,8 +241,9 @@ impl EngineApi {
     ) -> Result<EngineCapabilities, EngineApiError> {
         match self.rest.as_ref() {
             Some(rest) => {
-                match rest.resolve_http_and_get_capabilities(age_limit).await {
+                match rest.get_engine_capabilities(age_limit).await {
                     Ok(capabilities) => {
+                        info!("Selected REST-SSZ engine transport");
                         self.decision.set(Transport::Rest)?;
                         Ok(capabilities)
                     }

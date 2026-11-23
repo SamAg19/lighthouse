@@ -57,7 +57,7 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 Err(err) => return core_error_response(err),
             };
 
-            match SszPayloadStatusV1::<E>::try_from(status) {
+            match SszPayloadStatusV1::try_from(status) {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
@@ -79,9 +79,8 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 Err(err) => return core_error_response(err),
             };
 
-            match SszForkchoiceUpdatedResponse::<E>::try_from(ForkchoiceUpdatedResponse::from(
-                response,
-            )) {
+            match SszForkchoiceUpdatedResponse::try_from(ForkchoiceUpdatedResponse::from(response))
+            {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
@@ -304,15 +303,21 @@ fn decode_forkchoice_updated<E: EthSpec>(
 }
 
 fn encode_get_payload<E: EthSpec>(core: CorePayload<E>) -> Result<Vec<u8>, String> {
-    Ok(
-        SszGetPayloadResponse::try_from(core.into_get_payload_response())
-            .map_err(|e| format!("{e:?}"))?
-            .as_ssz_bytes(),
-    )
+    let response = SszGetPayloadResponse::try_from(core.into_get_payload_response())
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(match response {
+        SszGetPayloadResponse::Bellatrix(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Capella(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Deneb(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Electra(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Fulu(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Gloas(inner) => inner.as_ssz_bytes(),
+        SszGetPayloadResponse::Heze(inner) => inner.as_ssz_bytes(),
+    })
 }
 
-fn decode_blobs_request<E: EthSpec>(body: &[u8]) -> Result<Vec<Hash256>, DecodeError> {
-    Ok(SszBlobsRequestV1::<E>::from_ssz_bytes(body)?
+fn decode_blobs_request(body: &[u8]) -> Result<Vec<Hash256>, DecodeError> {
+    Ok(SszBlobsRequestV1::from_ssz_bytes(body)?
         .versioned_hashes
         .to_vec())
 }
@@ -327,7 +332,7 @@ fn handle_get_blobs<E: EthSpec>(
     body: &[u8],
     all_or_nothing: bool,
 ) -> Response<Bytes> {
-    let Ok(versioned_hashes) = decode_blobs_request::<E>(body) else {
+    let Ok(versioned_hashes) = decode_blobs_request(body) else {
         return problem_response(RestProblemKind::SszDecodeError, None);
     };
 

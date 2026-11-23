@@ -1,6 +1,6 @@
 use crate::engines::ForkchoiceState;
 pub use crate::json_structures::JsonRpcCapabilities;
-use crate::ssz_structures::{MaxBodiesRequest, SszCapabilities};
+use crate::ssz_structures::{MaxBodiesRequest, MaxVersionedHashesPerRequest, SszCapabilities};
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
@@ -203,8 +203,7 @@ impl ExecutionBlock {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
@@ -696,14 +695,14 @@ impl EngineCapabilities {
     pub fn new_payload(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.new_payload(fork),
-            Self::Ssz(capabilities) => capabilities.new_payload(fork),
+            Self::Ssz(capabilities) => capabilities.payloads(fork),
         }
     }
 
     pub fn get_payload(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload(fork),
-            Self::Ssz(capabilities) => capabilities.get_payload(fork),
+            Self::Ssz(capabilities) => capabilities.payloads(fork),
         }
     }
 
@@ -775,7 +774,7 @@ impl EngineCapabilities {
     }
 
     pub fn blobs_max_versioned_hashes<E: EthSpec>(&self) -> usize {
-        let ceiling = E::MaxVersionedHashesPerRequest::to_usize();
+        let ceiling = MaxVersionedHashesPerRequest::to_usize();
         match self {
             Self::JsonRpc(_) => ceiling,
             Self::Ssz(capabilities) => capabilities
