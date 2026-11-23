@@ -676,14 +676,14 @@ impl EngineCapabilities {
     pub fn new_payload(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.new_payload(fork),
-            Self::Ssz(capabilities) => capabilities.new_payload(fork),
+            Self::Ssz(capabilities) => capabilities.payloads(fork),
         }
     }
 
     pub fn get_payload(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload(fork),
-            Self::Ssz(capabilities) => capabilities.get_payload(fork),
+            Self::Ssz(capabilities) => capabilities.payloads(fork),
         }
     }
 
