@@ -25,7 +25,7 @@ use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
-use crate::EngineCapabilities;
+use crate::{EngineCapabilities, JsonRpcCapabilities};
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
@@ -38,7 +38,7 @@ pub use mock_execution_layer::MockExecutionLayer;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
-pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+pub const DEFAULT_JSON_RPC_CAPABILITIES: JsonRpcCapabilities = JsonRpcCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
     new_payload_v3: true,
@@ -66,6 +66,9 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_blobs_v4: true,
     get_inclusion_list_v1: true,
 };
+
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities =
+    EngineCapabilities::JsonRpc(DEFAULT_JSON_RPC_CAPABILITIES);
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
     LazyLock::new(|| JsonClientVersionV1 {
@@ -210,6 +213,19 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn set_engine_capabilities(&self, engine_capabilities: EngineCapabilities) {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
+    }
+
+    pub fn disable_client_version(&self) {
+        match &mut *self.ctx.engine_capabilities.write() {
+            EngineCapabilities::JsonRpc(capabilities) => {
+                capabilities.get_client_version_v1 = false;
+            }
+            EngineCapabilities::Ssz(capabilities) => {
+                capabilities
+                    .unscoped_endpoints
+                    .retain(|e| e.as_str() != "identity");
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
